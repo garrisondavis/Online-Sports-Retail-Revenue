@@ -1,0 +1,125 @@
+-- 1. Counting missing values
+-- Count the total number of products, along with the number of non-missing values in the fields description, listing_price, and last_visited. 
+
+Select 
+	Count(*) As total_rows,
+	Count(i.description) as count_description, 
+	Count(f.listing_price) as count_listing_price, 
+	Count(t.last_visited) as count_last_visited
+From info as i
+	Inner Join finance as f -- Join info, finance, and traffic
+	On i.product_id = f.product_id
+	Inner Join traffic as t
+	On i.product_id = t.product_id;
+
+-- 2. Nike vs. Adidas Pricing
+-- Find out how listing price varies between Adidas and Nike products. 
+
+Select 
+	b.brand, f.listing_price::int, count(*)
+From brands as b
+	Inner Join finance as f
+	On b.product_id = f.product_id
+Where f.listing_price > 0 
+Group By b.brand, f.listing_price
+Order By f.listing_price DESC; 
+
+-- 3. Labeling Price Ranges
+-- Create labels for products grouped by price range and brand. 
+
+Select 
+	b.brand, count(*), Sum(f.revenue) as total_revenue,
+	CASE WHEN f.listing_price < 42 Then 'Budget'
+	When f.listing_price >= 42 And f.listing_price < 74 Then 'Average'
+	When f.listing_price >= 74 And f.listing_price < 129 Then 'Expensive'
+	When f.listing_price >= 129 Then 'Elite' End As price_category
+From brands as b
+	Inner Join finance as f
+	On b.product_id = f.product_id
+Where b.brand is not null
+Group By b.brand, price_category
+Order by total_revenue DESC; 
+
+-- 4. Average Discount by Brand
+-- Calculate the average discount offered by brand
+
+Select 
+	brand, AVG(discount)*100 as average_discount
+From brands as b
+	Inner Join finance as f
+	On b.product_id = f.product_id
+Group By b.brand
+Having b.brand is not null;
+
+-- 5. Correlation between revenue and reviews
+-- Calculate the correlation between reviews and revenue. 
+
+Select 
+	corr(r.reviews, f.revenue) as review_revenue_corr
+From reviews as r
+	Inner Join finance as f
+	On r.product_id = f.product_id; 
+
+-- 6. Ratings and reviews by product description length
+-- Split description into bins in increments of one hundred characters, and calculate average rating by for each bin. 
+
+Select 
+	trunc(length(description), -2) as description_length,
+	Round(AVG(rating::numeric), 2) as average_rating
+From info as i
+	Inner Join reviews as r
+	On i.product_id = r.product_id
+Where description is not null
+Group By description_length
+Order By description_length ASC; 
+
+-- 7. Reviews by month and brand
+-- Count the number of reviews per brand per month
+
+Select 
+	b.brand, Extract(Month From t.last_visited) as month, count(*) as num_reviews
+From traffic as t
+	Inner Join reviews as r -- Join traffic with reviews and brands on product_id
+	On t.product_id = r.product_id
+	Inner Join brands as b
+	On t.product_id = b.product_id
+Group By b.brand, month
+Having b.brand Is Not Null and Extract(Month From t.last_visited) is not null
+Order By b.brand, month; 
+
+-- 8. Footwear product performance
+-- Create CTE, then calculate the number of products and average revenue from these items
+
+With footwear As (
+    Select 
+		i.description, f.revenue
+    From info as i
+                  Inner Join finance as f
+                  On i.product_id = f.product_id
+    Where (i.description ILike '%shoe%' OR i.description ILike '%trainer%' OR i.description ILike '%foot%')
+    		And i.description Is Not Null )
+
+Select 
+	count(*) as num_footwear_products, percentile_disc(.50) Within Group (Order By revenue) as median_footwear_revenue
+From footwear; 
+
+-- 9. Clothing product performance
+-- Using the CTE from the previous problem use a filter to return only products that are not in the CTE
+
+With footwear As (
+    Select 
+	i.description, f.revenue
+    From info as i
+                  Inner Join finance as f
+                  On i.product_id = f.product_id
+    Where (i.description ILike '%shoe%' OR i.description ILike '%trainer%' OR i.description ILike '%foot%')
+                  And i.description Is Not Null )
+
+Select 
+	count(*) as num_clothing_products, percentile_cont(.50) Within Group (Order By f.revenue) as median_clothing_revenue
+From info as i
+	Inner Join finance as f -- Inner join info with finance on product_id
+	On i.product_id = f.product_id
+Where i.description Not In (
+                        Select description
+                            From footwear);
